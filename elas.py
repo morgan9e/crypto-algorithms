@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from random import randint
-
+from random import randrange
+import hashlib
+import base64
 
 @dataclass
 class PrimeGaloisField:
@@ -118,7 +120,7 @@ class Point:
             return self.__class__(
                 x=x3.value,
                 y=y3.value,
-                curve=secp256k1
+                curve=self.curve
             )
 
         if self == other and self.y == inf:
@@ -134,7 +136,7 @@ class Point:
             return self.__class__(
                 x=x3.value,
                 y=y3.value,
-                curve=secp256k1
+                curve=self.curve
             )
 
     def __rmul__(self, scalar: int) -> "Point":
@@ -158,9 +160,7 @@ class Signature:
         s_inv = pow(self.s, -1, N)
         u = (z * s_inv) % N
         v = (self.r * s_inv) % N
-
         return (u*G + v*pub_key).x.value == self.r
-
 
 @dataclass
 class PrivateKey:
@@ -176,34 +176,122 @@ class PrivateKey:
 
         return Signature(r, s)
 
+def sha256(msg: str):
+    hash = int('0x'+hashlib.sha256(msg.encode()).hexdigest(), 16)
+    return hash
+
+def sha1(msg: str):
+    hash = int('0x'+hashlib.sha1(msg.encode()).hexdigest(), 16)
+    return hash
+
+def lsh(msg: str):
+    from lsh import LSHDigest
+    lsh = LSHDigest.getInstance(256, 256)
+    lsh.update(msg.encode())
+    hash = lsh.final()
+    return hex(int.from_bytes(hash,'big'))
+
+def largePrime(bit):
+    def rand(n):
+        return randrange(2**(n-1)+1, 2**n-1)
+
+    def gLLP(n):
+        while True: 
+      
+            # Obtain a random number
+            prime_candidate = rand(n) 
+      
+            for divisor in first_primes_list: 
+                if prime_candidate % divisor == 0 and divisor**2 <= prime_candidate:
+                    break
+                # If no divisor found, return value
+                else: return prime_candidate
+
+    def iMRP(miller_rabin_candidate):
+        maxDivisionsByTwo = 0
+        evenComponent = miller_rabin_candidate-1
+      
+        while evenComponent % 2 == 0:
+            evenComponent >>= 1
+            maxDivisionsByTwo += 1
+        assert(2**maxDivisionsByTwo * evenComponent == miller_rabin_candidate-1)
+      
+        def trialComposite(round_tester):
+            if pow(round_tester, evenComponent, miller_rabin_candidate) == 1:
+                return False
+            for i in range(maxDivisionsByTwo):
+                if pow(round_tester, 2**i * evenComponent, miller_rabin_candidate) == miller_rabin_candidate-1:
+                    return False
+            return True
+      
+        # Set number of trials here
+        numberOfRabinTrials = 20 
+        for i in range(numberOfRabinTrials):
+            round_tester = randrange(2, miller_rabin_candidate)
+            if trialComposite(round_tester):
+                return False
+        return True
+
+    first_primes_list = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
+                     31, 37, 41, 43, 47, 53, 59, 61, 67, 
+                     71, 73, 79, 83, 89, 97, 101, 103, 
+                     107, 109, 113, 127, 131, 137, 139, 
+                     149, 151, 157, 163, 167, 173, 179, 
+                     181, 191, 193, 197, 199, 211, 223,
+                     227, 229, 233, 239, 241, 251, 257,
+                     263, 269, 271, 277, 281, 283, 293,
+                     307, 311, 313, 317, 331, 337, 347, 349]
+
+    while True:
+        n = bit
+        prime_candidate = gLLP(n)
+        if not iMRP(prime_candidate):
+            continue
+        else:
+            return prime_candidate
+            break
+
+def b64e(data: int):
+    base64_bytes = base64.b64encode(bytes.fromhex(str(data).replace('0x','')))
+    base64_message = base64_bytes.decode('ascii')
+    return base64_message
 
 if __name__ == "__main__":
 
-    P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-    A = 0
-    B = 7
+    ######[ SEC-P256-r1 ]#####################################################
 
-    field = PrimeGaloisField(prime=P)
-    secp256k1 = EllipticCurve(a=A, b=B, field=field)
-
-    G = Point(
-    x=0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
-    y=0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,
-    curve=secp256k1)
-    
-    N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-
-    I = Point(x=None, y=None, curve=secp256k1)
-
+    P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+    A = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC
+    B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+    N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
     inf = float("inf")
 
-    priv: int = 0xea11d6ada978a0b491aa5cbbe4df17a65c2fecc24448e95d1ccd854b43991bec
-    e = PrivateKey(priv)
+    field = PrimeGaloisField(prime=P)
+    secp256r1 = EllipticCurve(a=A, b=B, field=field)
 
-    pub = e.secret * G
-    print(pub)
-    z = 0x7e240de74fb1ed08fa08d38063f6a6a91462a815
+    G = Point(
+    x=0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+    y=0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5,
+    curve=secp256r1)    
+    I = Point(x=None, y=None, curve=secp256r1)
+
+    #####################################################################
+
+    priv = 0x9f07090a27c7f3eaf51980059cae33420865890c72d51a8d3a20fee02c82afc63ab79c604ec6b691b94bc288b910327cd38cce7f11b61ab330b9b506c149722f
+    #largePrime(512)
+    msg = ''
     
-    signature: Signature = e.sign(z)
-    print(e.sign(z))
-    assert signature.verify(z, pub)
+    z = sha256(msg)
+
+    e = PrivateKey(priv)
+    pub = e.secret * G
+    
+    signature = e.sign(z)
+    # print(signature.verify(z, pub))
+
+    f_pubKey = hex(int(f'0x40{str(pub.x).replace("0x","")}{str(pub.y).replace("0x","")}',16))
+    f_privKey = hex(priv)
+    f_msg = hex(z)
+    f_Sign = hex(int(f'0x30450220{str(hex(e.sign(z).r)).replace("0x","")}022100{str(hex(e.sign(z).s)).replace("0x","")}',16))
+
+    print(b64e(f_pubKey))
